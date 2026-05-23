@@ -30,6 +30,8 @@ function App() {
 	const [error, setError] = useState<string | null>(null);
 	const [formError, setFormError] = useState<string | null>(null);
 	const [isSubmitting, setIsSubmitting] = useState(false);
+	const [selectionMode, setSelectionMode] = useState(false);
+	const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
 
 	const { snackbar, show: showSnackbar, hide: hideSnackbar } = useSnackbar();
 	const pendingCompleteRef = useRef<Map<string, PendingAction>>(new Map());
@@ -70,6 +72,43 @@ function App() {
 		return todos.filter((todo) => todo.category === filter);
 	}, [todos, filter]);
 
+	const selectableTodos = useMemo(
+		() => filteredTodos.filter((todo) => !todo.completed),
+		[filteredTodos],
+	);
+
+	const allSelectableSelected =
+		selectableTodos.length > 0 &&
+		selectableTodos.every((todo) => selectedIds.has(todo.id));
+
+	const someSelectableSelected = selectableTodos.some((todo) =>
+		selectedIds.has(todo.id),
+	);
+
+	useEffect(() => {
+		setSelectedIds((prev) => {
+			const selectable = new Set(selectableTodos.map((todo) => todo.id));
+			const next = new Set([...prev].filter((id) => selectable.has(id)));
+			return next.size === prev.size ? prev : next;
+		});
+	}, [selectableTodos]);
+
+	useEffect(() => {
+		if (selectableTodos.length === 0) {
+			setSelectionMode(false);
+			setSelectedIds(new Set());
+		}
+	}, [selectableTodos.length]);
+
+	const exitSelectionMode = useCallback(() => {
+		setSelectionMode(false);
+		setSelectedIds(new Set());
+	}, []);
+
+	const enterSelectionMode = useCallback(() => {
+		setSelectionMode(true);
+	}, []);
+
 	const cancelPending = (map: Map<string, PendingAction>, id: string) => {
 		const pending = map.get(id);
 		if (pending) {
@@ -104,6 +143,93 @@ function App() {
 			setError("Failed to remove completed task.");
 		}
 	}, []);
+
+	const toggleSelection = (id: string) => {
+		setSelectedIds((prev) => {
+			const next = new Set(prev);
+			if (next.has(id)) {
+				next.delete(id);
+			} else {
+				next.add(id);
+			}
+			return next;
+		});
+	};
+
+	const handleSelectAll = (selected: boolean) => {
+		if (selected) {
+			setSelectedIds(new Set(selectableTodos.map((todo) => todo.id)));
+		} else {
+			setSelectedIds(new Set());
+		}
+	};
+
+	const handleBulkComplete = async () => {
+		const targets = selectableTodos.filter(
+			(todo) =>
+				selectedIds.has(todo.id) &&
+				!pendingCompleteRef.current.has(todo.id),
+		);
+		if (targets.length === 0) {
+			return;
+		}
+
+		try {
+			const updated = await Promise.all(
+				targets.map((todo) => updateTodo(todo.id, { completed: true })),
+			);
+			const updatedById = new Map(updated.map((todo) => [todo.id, todo]));
+
+			setTodos((prev) =>
+				prev.map((item) => updatedById.get(item.id) ?? item),
+			);
+
+			const ids = targets.map((todo) => todo.id);
+
+			const undo = () => {
+				for (const id of ids) {
+					cancelPending(pendingCompleteRef.current, id);
+				}
+				hideSnackbar();
+				Promise.all(
+					ids.map((id) => updateTodo(id, { completed: false })),
+				).then((restored) => {
+					const restoredById = new Map(
+						restored.map((todo) => [todo.id, todo]),
+					);
+					setTodos((prev) =>
+						prev.map((item) => restoredById.get(item.id) ?? item),
+					);
+				});
+			};
+
+			const label =
+				targets.length === 1
+					? "Task completed"
+					: `${targets.length} tasks completed`;
+			showSnackbar(label, { label: "Undo", onClick: undo });
+
+			let remaining = ids.length;
+			for (const todo of updated) {
+				const timeoutId = setTimeout(() => {
+					finalizeComplete(todo.id);
+					remaining -= 1;
+					if (remaining === 0) {
+						hideSnackbar();
+					}
+				}, COMPLETE_GRACE_MS);
+
+				pendingCompleteRef.current.set(todo.id, {
+					todo,
+					timeoutId,
+				});
+			}
+
+			exitSelectionMode();
+		} catch {
+			setError("Failed to complete tasks.");
+		}
+	};
 
 	const handleToggleComplete = async (todo: Todo) => {
 		if (todo.completed) {
@@ -244,6 +370,16 @@ function App() {
 				) : (
 					<TodoList
 						todos={filteredTodos}
+						selectionMode={selectionMode}
+						selectableCount={selectableTodos.length}
+						selectedIds={selectedIds}
+						allSelectableSelected={allSelectableSelected}
+						someSelectableSelected={someSelectableSelected}
+						onEnterSelectionMode={enterSelectionMode}
+						onExitSelectionMode={exitSelectionMode}
+						onSelectAll={handleSelectAll}
+						onToggleSelection={toggleSelection}
+						onBulkComplete={handleBulkComplete}
 						onToggleComplete={handleToggleComplete}
 						onDelete={handleDelete}
 					/>
