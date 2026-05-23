@@ -14,6 +14,7 @@ A simple todo app with a React frontend and Express + SQLite backend.
 cd backend
 npm install
 npm run db:push
+npm run db:generate
 ```
 
 Copy `.env.example` to `.env` in the `backend` folder before `db:push`.
