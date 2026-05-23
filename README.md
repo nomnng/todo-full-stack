@@ -2,6 +2,10 @@
 
 A simple todo app with a React frontend and Express + SQLite backend.
 
+## Live demo
+
+[Github Pages](https://nomnng.github.io/todo-full-stack/frontend_static/)
+
 ## Prerequisites
 
 - [Node.js](https://nodejs.org/) (v18 or newer)
