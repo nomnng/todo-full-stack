@@ -1,0 +1,17 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model Todo {
+  id        String  @id @default(uuid())
+  text      String
+  category  String
+  completed Boolean @default(false)
+
+  @@index([category])
+}

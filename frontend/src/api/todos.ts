@@ -1,30 +1,6 @@
+import axios from "axios";
 import type { CreateTodoInput, Todo } from "../types/todo";
-
-const MAX_TASKS_PER_CATEGORY = 5;
-const MOCK_DELAY_MS = 400;
-
-let todos: Todo[] = [
-	{
-		id: "1",
-		text: "Review project requirements",
-		category: "Work",
-		completed: false,
-	},
-	{
-		id: "2",
-		text: "Buy groceries",
-		category: "Shopping",
-		completed: false,
-	},
-];
-
-function delay(ms = MOCK_DELAY_MS) {
-	return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function generateId() {
-	return crypto.randomUUID();
-}
+import { api } from "./client";
 
 export class ApiError extends Error {
 	constructor(message: string) {
@@ -33,74 +9,71 @@ export class ApiError extends Error {
 	}
 }
 
-export async function fetchTodos(): Promise<Todo[]> {
-	await delay();
-	return todos.map((todo) => ({ ...todo }));
+function getErrorMessage(error: unknown): string {
+	if (axios.isAxiosError(error)) {
+		const message = error.response?.data?.message;
+		if (typeof message === "string") {
+			return message;
+		}
+	}
+	return "Request failed.";
+}
+
+export async function fetchCategories(): Promise<string[]> {
+	const { data } = await api.get<string[]>("/categories");
+	return data;
+}
+
+export async function fetchTodos(category?: string): Promise<Todo[]> {
+	const { data } = await api.get<Todo[]>("/todos", {
+		params: category ? { category } : undefined,
+	});
+	return data;
 }
 
 export async function createTodo(input: CreateTodoInput): Promise<Todo> {
-	await delay();
-
-	const countInCategory = todos.filter(
-		(todo) => todo.category === input.category,
-	).length;
-
-	if (countInCategory >= MAX_TASKS_PER_CATEGORY) {
-		throw new ApiError(
-			`Category "${input.category}" already has ${MAX_TASKS_PER_CATEGORY} tasks.`,
-		);
+	try {
+		const { data } = await api.post<Todo>("/todos", {
+			text: input.text.trim(),
+			category: input.category,
+		});
+		return data;
+	} catch (error) {
+		throw new ApiError(getErrorMessage(error));
 	}
-
-	const todo: Todo = {
-		id: generateId(),
-		text: input.text.trim(),
-		category: input.category,
-		completed: false,
-	};
-
-	todos = [...todos, todo];
-	return { ...todo };
 }
 
 export async function updateTodo(
 	id: string,
 	patch: Partial<Pick<Todo, "completed">>,
 ): Promise<Todo> {
-	await delay(200);
-
-	const index = todos.findIndex((todo) => todo.id === id);
-	if (index === -1) {
-		throw new ApiError("Task not found.");
+	try {
+		const { data } = await api.patch<Todo>(`/todos/${id}`, patch);
+		return data;
+	} catch (error) {
+		throw new ApiError(getErrorMessage(error));
 	}
-
-	todos = todos.map((todo) => (todo.id === id ? { ...todo, ...patch } : todo));
-
-	return { ...todos[index] };
 }
 
 export async function deleteTodo(id: string): Promise<void> {
-	await delay(200);
-	todos = todos.filter((todo) => todo.id !== id);
+	try {
+		await api.delete(`/todos/${id}`);
+	} catch (error) {
+		throw new ApiError(getErrorMessage(error));
+	}
 }
 
 export async function restoreTodo(todo: Todo): Promise<Todo> {
-	await delay(100);
-
-	const exists = todos.some((item) => item.id === todo.id);
-	if (exists) {
-		return { ...todo };
+	try {
+		const { data } = await api.post<Todo>("/todos", {
+			text: todo.text,
+			category: todo.category,
+		});
+		if (todo.completed) {
+			return updateTodo(data.id, { completed: true });
+		}
+		return data;
+	} catch (error) {
+		throw new ApiError(getErrorMessage(error));
 	}
-
-	const countInCategory = todos.filter(
-		(item) => item.category === todo.category,
-	).length;
-
-	if (countInCategory >= MAX_TASKS_PER_CATEGORY) {
-		throw new ApiError(
-			`Category "${todo.category}" already has ${MAX_TASKS_PER_CATEGORY} tasks.`,
-		);
-	}
-
-	todos = [...todos, { ...todo }];
-	return { ...todo };
 }
